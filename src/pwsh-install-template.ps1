@@ -68,16 +68,21 @@ function global:__coreutils_q {
     '"' + (([string]$s) -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
 }
 
-# Rather than naively override the readline, we memorize any other readline that may
-# have been set before us. If we do find one, we invoke it before any of our own
-# overrides in our own readline.
+# Certain shell integrations, such as
+# https://github.com/atuinsh/atuin/blob/2755631454d096bf5924a6d65184c8b635ab5695/crates/atuin/src/shell/atuin.ps1#L57-L59
+# also need to override PSConsoleHostReadline, and memoizing the previous
+# PSConsoleHostReadline here, and invoking it in our own implementation, enables other
+# programs to perform whatever they need to do in their PSConsoleHostReadline before we
+# perform our necessary transformations.
 #
-# The idea here is to support other programs which override readline.
+# Note this PSVariable.Get call is also important as it guards against repeated
+# $PROFILE sources, wherein we would risk re-setting __COREUTILS_PREV_READLINE__ to our
+# version, which isn't the true previous caller.
 if (!$ExecutionContext.SessionState.PSVariable.Get('__COREUTILS_PREV_READLINE__')) {
     $script:__COREUTILS_PREV_READLINE__ = $Function:PSConsoleHostReadLine
 
-    # If there was no previous readline, we set a dunder one that just directly calls
-    # PSConsoleReadline::ReadLine.
+    # If there was no previous readline, we set one that just directly calls
+    # PSConsoleReadline::Readline.
     if (!$script:__COREUTILS_PREV_READLINE__) {
         $script:__COREUTILS_PREV_READLINE__ = {
             [System.Diagnostics.DebuggerHidden()]
