@@ -68,6 +68,32 @@ function global:__coreutils_q {
     '"' + (([string]$s) -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
 }
 
+# Rather than naively override the readline, we memorize any other readline that may
+# have been set before us. If we do find one, we invoke it before any of our own
+# overrides in our own readline.
+#
+# The idea here is to support other programs which override readline.
+if (!$ExecutionContext.SessionState.PSVariable.Get('__COREUTILS_PREV_READLINE__')) {
+    $script:__COREUTILS_PREV_READLINE__ = $Function:PSConsoleHostReadLine
+
+    # If there was no previous readline, we set a dunder one that just directly calls
+    # PSConsoleReadline::ReadLine.
+    if (!$script:__COREUTILS_PREV_READLINE__) {
+        $script:__COREUTILS_PREV_READLINE__ = {
+            [System.Diagnostics.DebuggerHidden()]
+            param()
+
+            $lastRunStatus = $?
+            Microsoft.PowerShell.Core\Set-StrictMode -Off
+            [Microsoft.PowerShell.PSConsoleReadLine]::ReadLine(
+                $host.Runspace,
+                $ExecutionContext,
+                $lastRunStatus
+            )
+        }
+    }
+}
+
 # PSConsoleHostReadLine override that rewrites coreutils command names to their
 # .cmd equivalents after PSReadLine returns (history keeps the original).
 #
@@ -81,12 +107,13 @@ function PSConsoleHostReadLine {
     [System.Diagnostics.DebuggerHidden()]
     param()
 
-    $lastRunStatus = $?
+    # Important: This must be the first call we make, since __COREUTILS_PREV_READLINE__
+    # internally reads the value of $?.
+    $line = & $script:__COREUTILS_PREV_READLINE__
     Microsoft.PowerShell.Core\Set-StrictMode -Off
-    $line = [Microsoft.PowerShell.PSConsoleReadLine]::ReadLine($host.Runspace, $ExecutionContext, $lastRunStatus)
 
     # If the line contains no coreutils name, we don't need to parse the AST at all.
-    if (-not $script:__COREUTILS_FAST_SKIP__.IsMatch($line)) {
+    if (!$line -or -not $script:__COREUTILS_FAST_SKIP__.IsMatch($line)) {
         return $line
     }
 
